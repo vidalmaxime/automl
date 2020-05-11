@@ -162,7 +162,7 @@ class ModelInspector(object):
 
     # Serving time batch size should be fixed.
     batch_size = self.batch_size or 1
-    all_files = list(tf.io.gfile.glob(image_path_pattern))
+    all_files = list(tf.io.gfile.glob("testdata/*"))
     print('all_files=', all_files)
     num_batches = (len(all_files) + batch_size - 1) // batch_size
 

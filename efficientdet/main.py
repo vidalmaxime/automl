@@ -135,13 +135,13 @@ def main(argv):
     tpu_cluster_resolver = None
 
   # Check data path
-  if FLAGS.mode in ('train',
-                    'train_and_eval') and FLAGS.training_file_pattern is None:
-    raise RuntimeError('You must specify --training_file_pattern for training.')
-  if FLAGS.mode in ('eval', 'train_and_eval'):
-    if FLAGS.validation_file_pattern is None:
-      raise RuntimeError('You must specify --validation_file_pattern '
-                         'for evaluation.')
+  # if FLAGS.mode in ('train',
+  #                   'train_and_eval') and FLAGS.training_file_pattern is None:
+  #   raise RuntimeError('You must specify --training_file_pattern for training.')
+  # if FLAGS.mode in ('eval', 'train_and_eval'):
+  #   if FLAGS.validation_file_pattern is None:
+  #     raise RuntimeError('You must specify --validation_file_pattern '
+  #                        'for evaluation.')
 
   # Parse and override hparams
   config = hparams_config.get_detection_config(FLAGS.model_name)
@@ -282,7 +282,7 @@ def main(argv):
           config=run_config,
           params=eval_params)
       eval_results = eval_estimator.evaluate(
-          input_fn=dataloader.InputReader(FLAGS.validation_file_pattern,
+          input_fn=dataloader.InputReader("tfrecord/*",#FLAGS.validation_file_pattern,
                                           is_training=False),
           steps=FLAGS.eval_samples//FLAGS.eval_batch_size)
       logging.info('Eval results: %s', eval_results)
@@ -324,7 +324,7 @@ def main(argv):
       logging.info('Starting to evaluate.')
       try:
         eval_results = eval_estimator.evaluate(
-            input_fn=dataloader.InputReader(FLAGS.validation_file_pattern,
+            input_fn=dataloader.InputReader("tfrecord/*", #FLAGS.validation_file_pattern,
                                             is_training=False),
             steps=FLAGS.eval_samples//FLAGS.eval_batch_size)
         logging.info('Eval results: %s', eval_results)

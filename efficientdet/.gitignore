@@ -1,0 +1,6 @@
+testdata/
+venv/
+tfrecord/
+savedmodeldir/
+efficientdet-d4/
+serve_image_out/
