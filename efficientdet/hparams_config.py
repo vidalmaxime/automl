@@ -190,6 +190,7 @@ def default_detection_configs():
   h.min_level = 3
   h.max_level = 7
   h.num_scales = 3
+  # aspect ratio with format (w, h). Can be computed with k-mean per dataset.
   h.aspect_ratios = [(1.0, 1.0), (1.4, 0.7), (0.7, 1.4)]
   h.anchor_scale = 4.0
   # is batchnorm training mode
@@ -219,7 +220,6 @@ def default_detection_configs():
   h.weight_decay = 4e-5
   # enable bfloat
   h.use_tpu = True
-  h.use_horovod = False
   # precision: one of 'float32', 'mixed_float16', 'mixed_bfloat16'.
   h.precision = None  # If None, use float32.
 

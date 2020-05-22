@@ -99,7 +99,10 @@ def get_ckpt_var_map(ckpt_path, ckpt_scope, var_scope, var_exclude_expr=None):
       if v.op.name.endswith('/ExponentialMovingAverage'):
         ckpt_var = ckpt_scope + v.op.name[:-len('/ExponentialMovingAverage')]
       if ckpt_var not in ckpt_var_names:
-        logging.info('skip {} ({}) -- not in ckpt'.format(v.op.name, ckpt_var))
+        if 'Momentum' not in ckpt_var and 'RMSProp' not in ckpt_var:
+          # Only show vars not from optimizer to avoid false alarm.
+          logging.info('skip {} ({}) -- not in ckpt'.format(
+              v.op.name, ckpt_var))
         continue
 
     logging.info('Init {} from ckpt var {}'.format(v.op.name, ckpt_var))
@@ -309,7 +312,7 @@ def drop_connect(inputs, is_training, survival_prob):
   # Compute tensor.
   batch_size = tf.shape(inputs)[0]
   random_tensor = survival_prob
-  random_tensor += tf.random_uniform([batch_size, 1, 1, 1], dtype=inputs.dtype)
+  random_tensor += tf.random.uniform([batch_size, 1, 1, 1], dtype=inputs.dtype)
   binary_tensor = tf.floor(random_tensor)
   # Unlike conventional way that multiply survival_prob at test time, here we
   # divide survival_prob at training time, such that no addition compute is
