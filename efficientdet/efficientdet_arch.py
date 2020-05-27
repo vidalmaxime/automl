@@ -112,7 +112,7 @@ def resample_feature_map(feat,
                          conv_after_downsample=False,
                          use_native_resize_op=False,
                          pooling_type=None,
-                         use_tpu=False,
+                         strategy=None,
                          data_format='channels_last'):
   """Resample input feature map to have target number of channels and size."""
   if data_format == 'channels_first':
@@ -142,7 +142,7 @@ def resample_feature_map(feat,
             is_training_bn=is_training,
             act_type=None,
             data_format=data_format,
-            use_tpu=use_tpu,
+            strategy=strategy,
             name='bn')
     return feat
 
@@ -202,29 +202,6 @@ def resample_feature_map(feat,
   return feat
 
 
-def _verify_feats_size(feats,
-                       feat_sizes,
-                       min_level,
-                       max_level,
-                       data_format='channels_last'):
-  """Verify the feature map sizes."""
-  expected_output_size = feat_sizes[min_level:max_level + 1]
-  for cnt, size in enumerate(expected_output_size):
-    h_id, w_id = (2, 3) if data_format == 'channels_first' else (1, 2)
-    if feats[cnt].shape[h_id] != size['height']:
-      raise ValueError(
-          'feats[{}] has shape {} but its height should be {}.'
-          '(input_height: {}, min_level: {}, max_level: {}.)'.format(
-              cnt, feats[cnt].shape, size['height'], feat_sizes[0]['height'],
-              min_level, max_level))
-    if feats[cnt].shape[w_id] != size['width']:
-      raise ValueError(
-          'feats[{}] has shape {} but its width should be {}.'
-          '(input_width: {}, min_level: {}, max_level: {}.)'.format(
-              cnt, feats[cnt].shape, size['width'], feat_sizes[0]['width'],
-              min_level, max_level))
-
-
 ###############################################################################
 def class_net(images,
               level,
@@ -236,7 +213,7 @@ def class_net(images,
               separable_conv=True,
               repeats=4,
               survival_prob=None,
-              use_tpu=False,
+              strategy=None,
               data_format='channels_last'):
   """Class prediction network."""
   if separable_conv:
@@ -266,7 +243,7 @@ def class_net(images,
         is_training,
         act_type=act_type,
         init_zero=False,
-        use_tpu=use_tpu,
+        strategy=strategy,
         data_format=data_format,
         name='class-%d-bn-%d' % (i, level))
 
@@ -293,7 +270,7 @@ def box_net(images,
             repeats=4,
             separable_conv=True,
             survival_prob=None,
-            use_tpu=False,
+            strategy=None,
             data_format='channels_last'):
   """Box regression network."""
   if separable_conv:
@@ -323,7 +300,7 @@ def box_net(images,
         is_training,
         act_type=act_type,
         init_zero=False,
-        use_tpu=use_tpu,
+        strategy=strategy,
         data_format=data_format,
         name='box-%d-bn-%d' % (i, level))
 
@@ -371,7 +348,7 @@ def build_class_and_box_outputs(feats, config):
           repeats=config.box_class_repeats,
           separable_conv=config.separable_conv,
           survival_prob=config.survival_prob,
-          use_tpu=config.use_tpu,
+          strategy=config.strategy,
           data_format=config.data_format
           )
 
@@ -389,7 +366,7 @@ def build_class_and_box_outputs(feats, config):
           repeats=config.box_class_repeats,
           separable_conv=config.separable_conv,
           survival_prob=config.survival_prob,
-          use_tpu=config.use_tpu,
+          strategy=config.strategy,
           data_format=config.data_format)
 
   return class_outputs, box_outputs
@@ -414,7 +391,7 @@ def build_backbone(features, config):
   if 'efficientnet' in backbone_name:
     override_params = {
         'batch_norm':
-            utils.batch_norm_class(is_training_bn, config.use_tpu),
+            utils.batch_norm_class(is_training_bn, config.strategy),
         'relu_fn':
             functools.partial(utils.activation_fn, act_type=config.act_type),
     }
@@ -477,11 +454,11 @@ def build_feature_network(features, config):
               conv_after_downsample=config.conv_after_downsample,
               use_native_resize_op=config.use_native_resize_op,
               pooling_type=config.pooling_type,
-              use_tpu=config.use_tpu,
+              strategy=config.strategy,
               data_format=config.data_format
           ))
 
-  _verify_feats_size(
+  utils.verify_feats_size(
       feats,
       feat_sizes=feat_sizes,
       min_level=config.min_level,
@@ -500,7 +477,7 @@ def build_feature_network(features, config):
                 config.min_level, config.max_level + 1)
         ]
 
-        _verify_feats_size(
+        utils.verify_feats_size(
             feats,
             feat_sizes=feat_sizes,
             min_level=config.min_level,
@@ -661,7 +638,7 @@ def build_bifpn_layer(feats, feat_sizes, config):
             p.conv_after_downsample,
             p.use_native_resize_op,
             p.pooling_type,
-            use_tpu=p.use_tpu,
+            strategy=p.strategy,
             data_format=config.data_format)
         nodes.append(input_node)
 
@@ -682,7 +659,7 @@ def build_bifpn_layer(feats, feat_sizes, config):
             filters=p.fpn_num_filters,
             kernel_size=(3, 3),
             padding='same',
-            use_bias=True if not p.conv_bn_act_pattern else False,
+            use_bias=not p.conv_bn_act_pattern,
             data_format=config.data_format,
             name='conv')
 
@@ -691,7 +668,7 @@ def build_bifpn_layer(feats, feat_sizes, config):
             is_training_bn=p.is_training_bn,
             act_type=None if not p.conv_bn_act_pattern else p.act_type,
             data_format=config.data_format,
-            use_tpu=p.use_tpu,
+            strategy=p.strategy,
             name='bn')
 
       feats.append(new_node)

@@ -22,11 +22,11 @@ from __future__ import print_function
 import contextlib
 import os
 import re
+from typing import Text, Tuple, Union
 from absl import logging
 import numpy as np
 import tensorflow.compat.v1 as tf
 import tensorflow.compat.v2 as tf2
-from typing import Text, Tuple, Union
 
 from tensorflow.python.tpu import tpu_function  # pylint:disable=g-direct-tensorflow-import
 # pylint: disable=logging-format-interpolation
@@ -220,6 +220,43 @@ class TpuBatchNormalization(tf.keras.layers.BatchNormalization):
     return outputs
 
 
+class SyncBatchNormalization(tf.keras.layers.BatchNormalization):
+  """Cross replica batch normalization."""
+
+  def __init__(self, fused=False, sync=False, **kwargs):
+    if fused in (True, None):
+      raise ValueError('SyncBatchNormalization does not support fused=True.')
+    if not kwargs.get('name', None):
+      kwargs['name'] = 'tpu_batch_normalization'
+    self._sync = sync
+    super(SyncBatchNormalization, self).__init__(fused=fused, **kwargs)
+
+  def _moments(self, inputs, reduction_axes, keep_dims):
+    """Compute the mean and variance: it overrides the original _moments."""
+    import horovod.tensorflow as hvd  # pylint: disable=g-import-not-at-top
+    shard_mean, shard_variance = super(SyncBatchNormalization, self)._moments(
+        inputs, reduction_axes, keep_dims=keep_dims)
+
+    num_shards = hvd.size()
+    if num_shards > 1 and self._sync:  # sync bn is 4x slower than non-sync.
+      # Compute variance using: Var[X]= E[X^2] - E[X]^2.
+      shard_square_of_mean = tf.math.square(shard_mean)
+      shard_mean_of_square = shard_variance + shard_square_of_mean
+      shard_stack = tf.stack([shard_mean, shard_mean_of_square])
+      group_mean, group_mean_of_square = tf.unstack(hvd.allreduce(shard_stack))
+      group_variance = group_mean_of_square - tf.math.square(group_mean)
+      return (group_mean, group_variance)
+    else:
+      return (shard_mean, shard_variance)
+
+  def call(self, *args, **kwargs):
+    outputs = super(SyncBatchNormalization, self).call(*args, **kwargs)
+    # A temporary hack for tf1 compatibility with keras batch norm.
+    for u in self.updates:
+      tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, u)
+    return outputs
+
+
 class BatchNormalization(tf.keras.layers.BatchNormalization):
   """Fixed default name of BatchNormalization to match TpuBatchNormalization."""
 
@@ -236,16 +273,18 @@ class BatchNormalization(tf.keras.layers.BatchNormalization):
     return outputs
 
 
-def batch_norm_class(is_training, use_tpu=False):
-  if is_training and use_tpu:
+def batch_norm_class(is_training, strategy=None):
+  if is_training and strategy == 'tpu':
     return TpuBatchNormalization
+  elif is_training and strategy == 'horovod':
+    return SyncBatchNormalization
   else:
     return BatchNormalization
 
 
-def batch_normalization(inputs, training=False, use_tpu=False, **kwargs):
+def batch_normalization(inputs, training=False, strategy=None, **kwargs):
   """A wrapper for TpuBatchNormalization."""
-  bn_layer = batch_norm_class(training, use_tpu)(**kwargs)
+  bn_layer = batch_norm_class(training, strategy)(**kwargs)
   return bn_layer(inputs, training=training)
 
 
@@ -256,7 +295,7 @@ def batch_norm_act(inputs,
                    data_format: Text = 'channels_last',
                    momentum: float = 0.99,
                    epsilon: float = 1e-3,
-                   use_tpu: bool = False,
+                   strategy: Text = None,
                    name: Text = None):
   """Performs a batch normalization followed by a non-linear activation.
 
@@ -270,7 +309,7 @@ def batch_norm_act(inputs,
       width]` or "channels_last for `[batch, height, width, channels]`.
     momentum: `float`, momentume of batch norm.
     epsilon: `float`, small value for numerical stability.
-    use_tpu: `bool`, whether to use tpu version of batch norm.
+    strategy: string to specify training strategy for TPU/GPU/CPU.
     name: the name of the batch normalization layer
 
   Returns:
@@ -294,7 +333,7 @@ def batch_norm_act(inputs,
       center=True,
       scale=True,
       training=is_training_bn,
-      use_tpu=use_tpu,
+      strategy=strategy,
       gamma_initializer=gamma_initializer,
       name=name)
 
@@ -377,7 +416,7 @@ def get_tpu_host_call(global_step, params):
     with tf2.summary.create_file_writer(
         model_dir, max_queue=iterations_per_loop).as_default():
       with tf2.summary.record_if(True):
-        for i in range(len(summaries)):
+        for i, _ in enumerate(summaries):
           name = summaries[i][0]
           tensor = args[i][0]
           tf2.summary.scalar(name, tensor, step=gs)
@@ -482,6 +521,29 @@ def get_feat_sizes(image_size: Union[Text, int, Tuple[int, int]],
     feat_size = ((feat_size[0] - 1) // 2 + 1, (feat_size[1] - 1) // 2 + 1)
     feat_sizes.append({'height': feat_size[0], 'width': feat_size[1]})
   return feat_sizes
+
+
+def verify_feats_size(feats,
+                      feat_sizes,
+                      min_level,
+                      max_level,
+                      data_format='channels_last'):
+  """Verify the feature map sizes."""
+  expected_output_size = feat_sizes[min_level:max_level + 1]
+  for cnt, size in enumerate(expected_output_size):
+    h_id, w_id = (2, 3) if data_format == 'channels_first' else (1, 2)
+    if feats[cnt].shape[h_id] != size['height']:
+      raise ValueError(
+          'feats[{}] has shape {} but its height should be {}.'
+          '(input_height: {}, min_level: {}, max_level: {}.)'.format(
+              cnt, feats[cnt].shape, size['height'], feat_sizes[0]['height'],
+              min_level, max_level))
+    if feats[cnt].shape[w_id] != size['width']:
+      raise ValueError(
+          'feats[{}] has shape {} but its width should be {}.'
+          '(input_width: {}, min_level: {}, max_level: {}.)'.format(
+              cnt, feats[cnt].shape, size['width'], feat_sizes[0]['width'],
+              min_level, max_level))
 
 
 @contextlib.contextmanager
