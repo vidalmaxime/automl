@@ -13,11 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 """Tests for efficientdet_arch."""
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 from absl import logging
 import tensorflow.compat.v1 as tf
 
@@ -30,11 +25,12 @@ class EfficientDetArchTest(tf.test.TestCase):
 
   def build_model(self,
                   model_name,
-                  isize,
+                  isize=None,
                   is_training=False,
                   data_format='channels_last'):
-    if isinstance(isize, int):
-      isize = (isize, isize)
+    config = hparams_config.get_efficientdet_config(model_name)
+    config.image_size = isize or config.image_size
+    isize = utils.parse_image_size(config.image_size)
     if data_format == 'channels_first':
       inputs_shape = [1, 3, isize[0], isize[1]]
     else:
@@ -94,24 +90,24 @@ class EfficientDetArchTest(tf.test.TestCase):
                              self.build_model('efficientdet-d7', 1536))
 
   def test_efficientdet_lite0(self):
-    self.assertSequenceEqual((3243527.0, 2504524987),
-                             self.build_model('efficientdet-lite0', 512))
+    self.assertSequenceEqual((3243470, 979428213),
+                             self.build_model('efficientdet-lite0'))
 
   def test_efficientdet_lite1(self):
-    self.assertSequenceEqual((4248394.0, 3515526105),
-                             self.build_model('efficientdet-lite1', 512))
+    self.assertSequenceEqual((4248318, 1976353506),
+                             self.build_model('efficientdet-lite1'))
 
   def test_efficientdet_lite2(self):
-    self.assertSequenceEqual((5252429.0, 4428869862),
-                             self.build_model('efficientdet-lite2', 512))
+    self.assertSequenceEqual((5252334, 3386596870),
+                             self.build_model('efficientdet-lite2'))
 
   def test_efficientdet_lite3(self):
-    self.assertSequenceEqual((8350976.0, 7523573252),
-                             self.build_model('efficientdet-lite3', 512))
+    self.assertSequenceEqual((8350862, 7509226979),
+                             self.build_model('efficientdet-lite3'))
 
   def test_efficientdet_lite4(self):
-    self.assertSequenceEqual((15131027.0, 12977398945),
-                             self.build_model('efficientdet-lite4', 512))
+    self.assertSequenceEqual((15130894, 12953966715),
+                             self.build_model('efficientdet-lite4'))
 
 
 class EfficientDetArchPrecisionTest(tf.test.TestCase):
@@ -123,10 +119,10 @@ class EfficientDetArchPrecisionTest(tf.test.TestCase):
           inputs,
           model_name='efficientdet-d0',
           is_training_bn=is_training,
-          precision=precision,
           image_size=512)
 
-    return utils.build_model_with_precision(precision, _model_fn, features)
+    return utils.build_model_with_precision(precision, _model_fn, features,
+                                            False)
 
   def test_float16(self):
     inputs = tf.ones(shape=[1, 512, 512, 3], name='input', dtype=tf.float32)
@@ -185,35 +181,6 @@ class FreezeTest(tf.test.TestCase):
     self.assertEqual(len(freeze_var_list), 1)
 
 
-class BiFPNTest(tf.test.TestCase):
-
-  def test_bifpn_dynamic_l3l7(self):
-    p1 = efficientdet_arch.bifpn_dynamic_config(3, 7, None)
-    p2 = efficientdet_arch.bifpn_fa_config()
-    self.assertEqual(p1.weight_method, p2.weight_method)
-    self.assertEqual(p1.nodes, p2.nodes)
-
-  def test_bifpn_dynamic_l2l7(self):
-    p = efficientdet_arch.bifpn_dynamic_config(2, 7, None)
-
-    # pyformat: disable
-    self.assertEqual(
-        p.nodes,
-        [
-            {'feat_level': 6, 'inputs_offsets': [4, 5]},
-            {'feat_level': 5, 'inputs_offsets': [3, 6]},
-            {'feat_level': 4, 'inputs_offsets': [2, 7]},
-            {'feat_level': 3, 'inputs_offsets': [1, 8]},
-            {'feat_level': 2, 'inputs_offsets': [0, 9]},
-            {'feat_level': 3, 'inputs_offsets': [1, 9, 10]},
-            {'feat_level': 4, 'inputs_offsets': [2, 8, 11]},
-            {'feat_level': 5, 'inputs_offsets': [3, 7, 12]},
-            {'feat_level': 6, 'inputs_offsets': [4, 6, 13]},
-            {'feat_level': 7, 'inputs_offsets': [5, 14]},
-        ])
-    # pyformat: enable
-
-
 class FeatureFusionTest(tf.test.TestCase):
 
   def test_sum(self):
@@ -238,6 +205,27 @@ class FeatureFusionTest(tf.test.TestCase):
     nodes = tf.constant([1, 3], dtype=tf.float32)
     nodes2 = tf.constant([1, 3], dtype=tf.float32)
     fused = efficientdet_arch.fuse_features([nodes, nodes2], 'fastattn')
+
+    with self.cached_session() as sess:
+      sess.run(tf.global_variables_initializer())
+
+    self.assertAllCloseAccordingToType(fused, [0.99995, 2.99985])
+
+  def test_channel_attn(self):
+    nodes = tf.constant([1, 3], dtype=tf.float32)
+    nodes2 = tf.constant([1, 3], dtype=tf.float32)
+    fused = efficientdet_arch.fuse_features([nodes, nodes2], 'channel_attn')
+
+    with self.cached_session() as sess:
+      # initialize weights
+      sess.run(tf.global_variables_initializer())
+
+    self.assertAllCloseAccordingToType(fused, [1.0, 3.0])
+
+  def test_channel_fastattn(self):
+    nodes = tf.constant([1, 3], dtype=tf.float32)
+    nodes2 = tf.constant([1, 3], dtype=tf.float32)
+    fused = efficientdet_arch.fuse_features([nodes, nodes2], 'channel_fastattn')
 
     with self.cached_session() as sess:
       sess.run(tf.global_variables_initializer())

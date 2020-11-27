@@ -13,12 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 r"""Tool to inspect a model."""
-
-from __future__ import absolute_import
-from __future__ import division
-# gtype import
-from __future__ import print_function
-
 import os
 import time
 from typing import Text, Tuple, List
@@ -46,7 +40,7 @@ flags.DEFINE_integer('bm_runs', 10, 'Number of benchmark runs.')
 flags.DEFINE_string('tensorrt', None, 'TensorRT mode: {None, FP32, FP16, INT8}')
 flags.DEFINE_bool('delete_logdir', True, 'Whether to delete logdir.')
 flags.DEFINE_bool('freeze', False, 'Freeze graph.')
-flags.DEFINE_bool('xla', False, 'Run with xla optimization.')
+flags.DEFINE_bool('use_xla', False, 'Run with xla optimization.')
 flags.DEFINE_integer('batch_size', 1, 'Batch size for inference.')
 
 flags.DEFINE_string('ckpt_path', None, 'checkpoint dir used for eval.')
@@ -66,8 +60,9 @@ flags.DEFINE_string('output_video', None,
 
 # For visualization.
 flags.DEFINE_integer('line_thickness', None, 'Line thickness for box.')
-flags.DEFINE_integer('max_boxes_to_draw', None, 'Max number of boxes to draw.')
-flags.DEFINE_float('min_score_thresh', None, 'Score threshold to show box.')
+flags.DEFINE_integer('max_boxes_to_draw', 100, 'Max number of boxes to draw.')
+flags.DEFINE_float('min_score_thresh', 0.4, 'Score threshold to show box.')
+flags.DEFINE_string('nms_method', 'hard', 'nms method, hard or gaussian.')
 
 # For saved model.
 flags.DEFINE_string('saved_model_dir', '/tmp/saved_model',
@@ -90,7 +85,8 @@ class ModelInspector(object):
                saved_model_dir: Text = None,
                tflite_path: Text = None,
                batch_size: int = 1,
-               hparams: Text = ''):
+               hparams: Text = '',
+               **kwargs):
     self.model_name = model_name
     self.logdir = logdir
     self.tensorrt = tensorrt
@@ -108,6 +104,14 @@ class ModelInspector(object):
     # If batch size is 0, then build a graph with dynamic batch size.
     self.batch_size = batch_size or None
     self.labels_shape = [batch_size, model_config.num_classes]
+
+    # A hack to make flag consistent with nms configs.
+    if kwargs.get('score_thresh', None):
+      model_config.nms_configs.score_thresh = kwargs['score_thresh']
+    if kwargs.get('nms_method', None):
+      model_config.nms_configs.method = kwargs['nms_method']
+    if kwargs.get('max_output_size', None):
+      model_config.nms_configs.max_output_size = kwargs['max_output_size']
 
     height, width = model_config.image_size
     if model_config.data_format == 'channels_first':
@@ -182,7 +186,7 @@ class ModelInspector(object):
         img_id = str(i * batch_size + j)
         output_image_path = os.path.join(output_dir, img_id + '.jpg')
         Image.fromarray(img).save(output_image_path)
-        logging.info('writing file to %s', output_image_path)
+        print('writing file to %s' % output_image_path)
 
   def saved_model_benchmark(self,
                             image_path_pattern,
@@ -310,12 +314,34 @@ class ModelInspector(object):
         saver = tf.train.Saver()
         saver.restore(sess, checkpoint)
 
+      # export frozen graph.
       output_node_names = [node.op.name for node in outputs]
       graphdef = tf.graph_util.convert_variables_to_constants(
           sess, sess.graph_def, output_node_names)
 
       tf_graph = os.path.join(self.logdir, self.model_name + '_frozen.pb')
       tf.io.gfile.GFile(tf_graph, 'wb').write(graphdef.SerializeToString())
+
+      # export savaed model.
+      output_dict = {'class_predict_%d' % i: outputs[i] for i in range(5)}
+      output_dict.update({'box_predict_%d' % i: outputs[5+i] for i in range(5)})
+      signature_def_map = {
+          'serving_default':
+              tf.saved_model.predict_signature_def(
+                  {'input': inputs},
+                  output_dict,
+              )
+      }
+      output_dir = os.path.join(self.logdir, 'savedmodel')
+      b = tf.saved_model.Builder(output_dir)
+      b.add_meta_graph_and_variables(
+          sess,
+          tags=['serve'],
+          signature_def_map=signature_def_map,
+          assets_collection=tf.get_collection(tf.GraphKeys.ASSET_FILEPATHS),
+          clear_devices=True)
+      b.save()
+      logging.info('Model saved at %s', output_dir)
 
     return graphdef
 
@@ -337,7 +363,6 @@ class ModelInspector(object):
     else:
       sess_config = tf.ConfigProto()
 
-    # rewriter_config_pb2.RewriterConfig.OFF
     sess_config.graph_options.rewrite_options.dependency_optimization = 2
     if self.use_xla:
       sess_config.graph_options.optimizer_options.global_jit_level = (
@@ -463,13 +488,16 @@ def main(_):
       model_name=FLAGS.model_name,
       logdir=FLAGS.logdir,
       tensorrt=FLAGS.tensorrt,
-      use_xla=FLAGS.xla,
+      use_xla=FLAGS.use_xla,
       ckpt_path=FLAGS.ckpt_path,
       export_ckpt=FLAGS.export_ckpt,
       saved_model_dir=FLAGS.saved_model_dir,
       tflite_path=FLAGS.tflite_path,
       batch_size=FLAGS.batch_size,
-      hparams=FLAGS.hparams)
+      hparams=FLAGS.hparams,
+      score_thresh=FLAGS.min_score_thresh,
+      max_output_size=FLAGS.max_boxes_to_draw,
+      nms_method=FLAGS.nms_method)
   inspector.run_model(
       FLAGS.runmode,
       input_image=FLAGS.input_image,
@@ -479,6 +507,7 @@ def main(_):
       line_thickness=FLAGS.line_thickness,
       max_boxes_to_draw=FLAGS.max_boxes_to_draw,
       min_score_thresh=FLAGS.min_score_thresh,
+      nms_method=FLAGS.nms_method,
       bm_runs=FLAGS.bm_runs,
       threads=FLAGS.threads,
       trace_filename=FLAGS.trace_filename)
@@ -486,5 +515,6 @@ def main(_):
 
 if __name__ == '__main__':
   logging.set_verbosity(logging.WARNING)
+  tf.enable_v2_tensorshape()
   tf.disable_eager_execution()
   app.run(main)

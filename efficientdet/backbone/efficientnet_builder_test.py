@@ -13,11 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 """Tests for efficientnet_builder."""
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 from absl import logging
 import numpy as np
 import tensorflow.compat.v1 as tf
@@ -103,10 +98,7 @@ class EfficientnetBuilderTest(tf.test.TestCase):
         images, model_name='efficientnet-b0', training=False)
 
     # reduction_1 to reduction_5 should be in endpoints
-    self.assertIn('reduction_1', endpoints)
-    self.assertIn('reduction_5', endpoints)
-    # reduction_5 should be the last one: no reduction_6.
-    self.assertNotIn('reduction_6', endpoints)
+    self.assertEqual(len(endpoints), 5)
 
 
 if __name__ == '__main__':

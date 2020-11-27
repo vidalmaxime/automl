@@ -13,14 +13,8 @@
 # limitations under the License.
 # ======================================
 """Tests for hparams_config."""
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import os
 import tempfile
-
 from absl import logging
 import tensorflow.compat.v1 as tf
 import yaml
@@ -59,17 +53,33 @@ class HparamsConfigTest(tf.test.TestCase):
     with open(yaml_file_path, 'w') as f:
       f.write("""
         x: 2
-        y: 'test'
+        y:
+          z: 'test'
       """)
     c = hparams_config.Config(dict(x=234, y=2342))
     c.override(yaml_file_path)
-    self.assertEqual(c.as_dict(), {'x': 2, 'y': 'test'})
+    self.assertEqual(c.as_dict(), {'x': 2, 'y': {'z': 'test'}})
 
     yaml_file_path2 = os.path.join(tmpdir, 'y.yaml')
     c.save_to_yaml(yaml_file_path2)
     with open(yaml_file_path2, 'r') as f:
       config_dict = yaml.load(f, Loader=yaml.FullLoader)
-    self.assertEqual(config_dict, {'x': 2, 'y': 'test'})
+    self.assertEqual(config_dict, {'x': 2, 'y': {'z': 'test'}})
+
+  def test_config_override_recursive(self):
+    c = hparams_config.Config({'x': 1})
+    self.assertEqual(c.as_dict(), {'x': 1})
+    c.override('y.y0=2,y.y1=3', allow_new_keys=True)
+    self.assertEqual(c.as_dict(), {'x': 1, 'y': {'y0': 2, 'y1': 3}})
+    c.update({'y': {'y0': 5, 'y1': {'y11': 100}}})
+    self.assertEqual(c.as_dict(), {'x': 1, 'y': {'y0': 5, 'y1': {'y11': 100}}})
+    self.assertEqual(c.y.y1.y11, 100)
+
+  def test_config_override_list(self):
+    c = hparams_config.Config({'x': [1.0, 2.0]})
+    self.assertEqual(c.as_dict(), {'x': [1.0, 2.0]})
+    c.override('x=3.0*4.0*5.0')
+    self.assertEqual(c.as_dict(), {'x': [3.0, 4.0, 5.0]})
 
 
 if __name__ == '__main__':

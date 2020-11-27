@@ -13,11 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 """Tests for efficientnet_model."""
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 from absl import logging
 import tensorflow.compat.v1 as tf
 
@@ -52,7 +47,7 @@ class ModelTest(tf.test.TestCase):
     ]
     model = efficientnet_model.Model(blocks_args, global_params)
     outputs = model(images, training=True)
-    self.assertEqual((10, 10), outputs.shape)
+    self.assertEqual((10, 10), outputs[0].shape)
 
   def test_fused_bottleneck_block(self):
     """Test for creating a model with fused bottleneck block arguments."""
@@ -79,7 +74,7 @@ class ModelTest(tf.test.TestCase):
     ]
     model = efficientnet_model.Model(blocks_args, global_params)
     outputs = model(images, training=True)
-    self.assertEqual((10, 10), outputs.shape)
+    self.assertEqual((10, 10), outputs[0].shape)
 
   def test_bottleneck_block_with_superpixel_layer(self):
     """Test for creating a model with fused bottleneck block arguments."""
@@ -106,7 +101,7 @@ class ModelTest(tf.test.TestCase):
     ]
     model = efficientnet_model.Model(blocks_args, global_params)
     outputs = model(images, training=True)
-    self.assertEqual((10, 10), outputs.shape)
+    self.assertEqual((10, 10), outputs[0].shape)
 
   def test_bottleneck_block_with_superpixel_tranformation(self):
     """Test for creating a model with fused bottleneck block arguments."""
@@ -133,7 +128,7 @@ class ModelTest(tf.test.TestCase):
     ]
     model = efficientnet_model.Model(blocks_args, global_params)
     outputs = model(images, training=True)
-    self.assertEqual((10, 10), outputs.shape)
+    self.assertEqual((10, 10), outputs[0].shape)
 
   def test_se_block(self):
     """Test for creating a model with SE block arguments."""
@@ -161,7 +156,7 @@ class ModelTest(tf.test.TestCase):
     ]
     model = efficientnet_model.Model(blocks_args, global_params)
     outputs = model(images, training=True)
-    self.assertEqual((10, 10), outputs.shape)
+    self.assertEqual((10, 10), outputs[0].shape)
 
   def test_variables(self):
     """Test for variables in blocks to be included in `model.variables`."""

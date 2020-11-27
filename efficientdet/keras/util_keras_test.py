@@ -1,4 +1,3 @@
-# Lint as: python3
 # Copyright 2020 Google Research. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,7 +17,7 @@ from absl.testing import parameterized
 import tensorflow as tf
 
 import utils
-from keras import utils_keras
+from keras import util_keras
 
 
 class KerasUtilTest(tf.test.TestCase, parameterized.TestCase):
@@ -28,10 +27,11 @@ class KerasUtilTest(tf.test.TestCase, parameterized.TestCase):
       ('train_tpu', True, 'tpu'), ('eval_tpu', False, 'tpu'))
   def test_batch_norm(self, is_training, strategy):
     inputs = tf.random.uniform([8, 40, 40, 3])
-    expect_results = utils.batch_norm_act(inputs, is_training, None)
+    expect_results = utils.batch_norm_act(
+        inputs, is_training, None, strategy=strategy)
 
     # Call batch norm layer with is_training parameter.
-    bn_layer = utils_keras.build_batch_norm(is_training, strategy=strategy)
+    bn_layer = util_keras.build_batch_norm(is_training, strategy=strategy)
     self.assertAllClose(expect_results, bn_layer(inputs, is_training))
 
 

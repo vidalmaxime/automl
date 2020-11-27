@@ -17,11 +17,6 @@
 efficientnet-litex (x=0,1,2,3,4) checkpoints are located in:
   https://storage.googleapis.com/cloud-tpu-checkpoints/efficientnet/lite/efficientnet-litex.tar.gz
 """
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import os
 from absl import logging
 import tensorflow.compat.v1 as tf
@@ -167,13 +162,14 @@ def build_model(images,
       training=training,
       features_only=features_only,
       pooled_features_only=pooled_features_only)
+  features, endpoints = outputs[0], outputs[1:]
   if features_only:
-    outputs = tf.identity(outputs, 'features')
+    features = tf.identity(features, 'features')
   elif pooled_features_only:
-    outputs = tf.identity(outputs, 'pooled_features')
+    features = tf.identity(features, 'pooled_features')
   else:
-    outputs = tf.identity(outputs, 'logits')
-  return outputs, model.endpoints
+    features = tf.identity(features, 'logits')
+  return features, endpoints
 
 
 def build_model_base(images, model_name, training, override_params=None):
@@ -202,7 +198,6 @@ def build_model_base(images, model_name, training, override_params=None):
   blocks_args, global_params = get_model_params(model_name, override_params)
 
   model = efficientnet_model.Model(blocks_args, global_params, model_name)
-  features = model(images, training=training, features_only=True)
+  outputs = model(images, training=training, features_only=True)
 
-  features = tf.identity(features, 'features')
-  return features, model.endpoints
+  return outputs[0], outputs[1:]

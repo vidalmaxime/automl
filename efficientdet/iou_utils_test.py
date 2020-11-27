@@ -13,13 +13,8 @@
 # limitations under the License.
 # ======================================
 """Tests for iou_utils."""
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 from absl import logging
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 import iou_utils
 
 
@@ -40,11 +35,11 @@ class IouUtilsTest(tf.test.TestCase):
 
   def test_ciou(self):
     self.assertAllClose(
-        iou_utils.iou_loss(self.pb, self.tb, 'ciou'), [1.408893, 1.548753])
+        iou_utils.iou_loss(self.pb, self.tb, 'ciou'), [0.99931306, 1.6415315])
 
   def test_diou(self):
     self.assertAllClose(
-        iou_utils.iou_loss(self.pb, self.tb, 'diou'), [1.406532, 1.531532])
+        iou_utils.iou_loss(self.pb, self.tb, 'diou'), [0.9969512, 1.6243094])
 
   def test_giou(self):
     self.assertAllClose(
@@ -69,6 +64,16 @@ class IouUtilsTest(tf.test.TestCase):
     pb = tf.concat([self.pb, self.zeros], axis=-1)
     tb = tf.concat([self.tb, self.zeros], axis=-1)
     self.assertAllClose(iou_utils.iou_loss(pb, tb, 'iou'), [0.875, 1.0])
+
+  def test_ciou_grad(self):
+    pb = tf.concat([self.pb, self.zeros], axis=-1)
+    tb = tf.concat([self.tb, self.zeros], axis=-1)
+    with tf.GradientTape() as tape:
+      tape.watch([pb, tb])
+      loss = iou_utils.iou_loss(pb, tb, 'ciou')
+    grad = tape.gradient(loss, [tb, pb])
+    self.assertAlmostEqual(tf.reduce_sum(grad[0]).numpy(), 0.1476393)
+    self.assertAlmostEqual(tf.reduce_sum(grad[1]).numpy(), -0.14763935)
 
 
 if __name__ == '__main__':
